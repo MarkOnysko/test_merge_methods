@@ -9,7 +9,7 @@ from app.schemas import PostIn, PostOut
 router = APIRouter(prefix="/posts", tags=["posts"])
 
 
-def _get_post_or_404(db, post_id: int):
+def get_post_or_404(db, post_id: int):
     row = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -29,7 +29,7 @@ def create_post(post: PostIn, db: DB, user: CurrentUser):
         (post.title, post.body, now, user["id"]),
     )
     db.commit()
-    return dict(_get_post_or_404(db, cur.lastrowid))
+    return dict(get_post_or_404(db, cur.lastrowid))
 
 
 @router.get("", response_model=list[PostOut])
@@ -40,22 +40,23 @@ def list_posts(db: DB):
 
 @router.get("/{post_id}", response_model=PostOut)
 def get_post(post_id: int, db: DB):
-    return dict(_get_post_or_404(db, post_id))
+    return dict(get_post_or_404(db, post_id))
 
 
 @router.put("/{post_id}", response_model=PostOut)
 def update_post(post_id: int, post: PostIn, db: DB, user: CurrentUser):
-    _require_author(_get_post_or_404(db, post_id), user)
+    _require_author(get_post_or_404(db, post_id), user)
     db.execute(
         "UPDATE posts SET title = ?, body = ? WHERE id = ?",
         (post.title, post.body, post_id),
     )
     db.commit()
-    return dict(_get_post_or_404(db, post_id))
+    return dict(get_post_or_404(db, post_id))
 
 
 @router.delete("/{post_id}", status_code=204)
 def delete_post(post_id: int, db: DB, user: CurrentUser):
-    _require_author(_get_post_or_404(db, post_id), user)
+    _require_author(get_post_or_404(db, post_id), user)
+    db.execute("DELETE FROM comments WHERE post_id = ?", (post_id,))  # no orphans
     db.execute("DELETE FROM posts WHERE id = ?", (post_id,))
     db.commit()

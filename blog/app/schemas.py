@@ -28,3 +28,14 @@ class PostOut(PostIn):
     id: int
     created_at: str
     author_id: int
+
+
+class CommentIn(BaseModel):
+    body: str = Field(min_length=1)
+
+
+class CommentOut(CommentIn):
+    id: int
+    post_id: int
+    author_id: int
+    created_at: str
