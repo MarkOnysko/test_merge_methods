@@ -1,6 +1,6 @@
-# Minimal Blog (FastAPI)
+# Minimal Blog (FastAPI + JWT)
 
-A tiny blog-post API: create, read, update and delete posts, stored in SQLite.
+A tiny blog-post API with user accounts. Anyone can read posts; logged-in users can create posts and edit/delete their own. Data lives in SQLite.
 
 ## Setup
 
@@ -8,37 +8,57 @@ A tiny blog-post API: create, read, update and delete posts, stored in SQLite.
 cd blog
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+export SECRET_KEY=$(openssl rand -hex 32)   # optional locally, required in production
+uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs for interactive API docs.
+Open http://127.0.0.1:8000/docs. Use the **Authorize** button there to log in and try protected routes.
 
 ## Try it
 
 ```bash
-# create
-curl -X POST localhost:8000/posts -H 'Content-Type: application/json' \
-  -d '{"title": "Hello", "body": "My first post"}'
+# 1. register, then log in to get a token
+curl -X POST localhost:8000/auth/register -H 'Content-Type: application/json' \
+  -d '{"username": "alice", "password": "s3cret-password"}'
 
-# list / read
+TOKEN=$(curl -s -X POST localhost:8000/auth/login \
+  -d 'username=alice&password=s3cret-password' | python -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+
+# 2. create a post (needs the token)
+curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"title": "Hello", "body": "My first post"}'
+
+# 3. read posts (public)
 curl localhost:8000/posts
-curl localhost:8000/posts/1
 
-# update
-curl -X PUT localhost:8000/posts/1 -H 'Content-Type: application/json' \
-  -d '{"title": "Hello again", "body": "Edited"}'
-
-# delete
-curl -X DELETE localhost:8000/posts/1
+# 4. edit / delete your own post
+curl -X PUT localhost:8000/posts/1 -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"title": "Hello again", "body": "Edited"}'
+curl -X DELETE localhost:8000/posts/1 -H "Authorization: Bearer $TOKEN"
 ```
 
-## How `main.py` is organised
+## Project layout
 
-1. **Database** – `sqlite3` with one `posts` table, created on startup.
-2. **Schemas** – Pydantic models (`PostIn`, `PostOut`) validate requests and shape responses.
-3. **App** – a `FastAPI` instance; the `lifespan` hook initialises the DB.
-4. **Routes** – five endpoints covering CRUD under `/posts`.
+```
+app/
+├── main.py          # creates the app, includes routers, inits DB on startup
+├── config.py        # settings (SECRET_KEY, token lifetime, DB path)
+├── database.py      # SQLite connection dependency + table creation
+├── schemas.py       # Pydantic request/response models
+├── security.py      # password hashing, JWT create/decode
+├── dependencies.py  # get_current_user: turns a bearer token into a user
+└── routers/
+    ├── auth.py      # POST /auth/register, POST /auth/login, GET /auth/me
+    └── posts.py     # CRUD under /posts
+```
 
-## Next steps
+## How the auth flow works
 
-Add authentication, comments, pagination, or swap `sqlite3` for SQLAlchemy/SQLModel.
+1. `POST /auth/login` checks the password and returns a signed JWT whose `sub` is the user id (expires after 30 minutes).
+2. The client sends it back as `Authorization: Bearer <token>`.
+3. Routes that declare `user: CurrentUser` run `get_current_user`, which verifies the signature and expiry and loads the user. Missing/invalid token → `401`. Editing someone else's post → `403`.
+
+## Notes
+
+- Passwords are hashed with PBKDF2 from the standard library to keep dependencies small; for a real app consider `argon2` or `bcrypt`.
+- The schema changed (users table, `posts.author_id`). If you have an old `blog.db`, delete it so it is recreated.
