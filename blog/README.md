@@ -31,9 +31,19 @@ curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
 # 3. read posts (public)
 curl localhost:8000/posts
 
-# 4. edit / delete your own post
+# 4. edit your own post
 curl -X PUT localhost:8000/posts/1 -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"title": "Hello again", "body": "Edited"}'
+
+# 5. comment on a post (needs the token), then list / edit / delete
+curl -X POST localhost:8000/posts/1/comments -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"body": "Nice post!"}'
+curl localhost:8000/posts/1/comments
+curl -X PUT localhost:8000/comments/1 -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"body": "Edited"}'
+curl -X DELETE localhost:8000/comments/1 -H "Authorization: Bearer $TOKEN"
+
+# 6. delete the post (also removes its comments)
 curl -X DELETE localhost:8000/posts/1 -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -49,16 +59,17 @@ app/
 ├── dependencies.py  # get_current_user: turns a bearer token into a user
 └── routers/
     ├── auth.py      # POST /auth/register, POST /auth/login, GET /auth/me
-    └── posts.py     # CRUD under /posts
+    ├── posts.py     # CRUD under /posts
+    └── comments.py  # comments on posts
 ```
 
 ## How the auth flow works
 
 1. `POST /auth/login` checks the password and returns a signed JWT whose `sub` is the user id (expires after 30 minutes).
 2. The client sends it back as `Authorization: Bearer <token>`.
-3. Routes that declare `user: CurrentUser` run `get_current_user`, which verifies the signature and expiry and loads the user. Missing/invalid token → `401`. Editing someone else's post → `403`.
+3. Routes that declare `user: CurrentUser` run `get_current_user`, which verifies the signature and expiry and loads the user. Missing/invalid token → `401`. Editing or deleting someone else's post or comment → `403`.
 
 ## Notes
 
 - Passwords are hashed with PBKDF2 from the standard library to keep dependencies small; for a real app consider `argon2` or `bcrypt`.
-- The schema changed (users table, `posts.author_id`). If you have an old `blog.db`, delete it so it is recreated.
+- The schema changed (users, `posts.author_id`, comments). If you have an old `blog.db`, delete it so it is recreated.

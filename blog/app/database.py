@@ -39,6 +39,13 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 author_id  INTEGER NOT NULL REFERENCES users(id)
             );
+            CREATE TABLE IF NOT EXISTS comments (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id    INTEGER NOT NULL REFERENCES posts(id),
+                author_id  INTEGER NOT NULL REFERENCES users(id),
+                body       TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         db.commit()

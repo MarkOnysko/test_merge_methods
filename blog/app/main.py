@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.database import init_db
-from app.routers import auth, posts
+from app.routers import auth, comments, posts
 
 
 @asynccontextmanager
@@ -19,3 +19,4 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Minimal Blog", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(posts.router)
+app.include_router(comments.router)
