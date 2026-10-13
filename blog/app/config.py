@@ -7,4 +7,5 @@ DB_PATH = os.getenv("DB_PATH", "blog.db")
 #   export SECRET_KEY=$(openssl rand -hex 32)
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-secret-change-me")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 15  # short-lived: refresh tokens do the long-term work
+REFRESH_TOKEN_EXPIRE_DAYS = 7

@@ -21,8 +21,17 @@ Open http://127.0.0.1:8000/docs. Use the **Authorize** button there to log in an
 curl -X POST localhost:8000/auth/register -H 'Content-Type: application/json' \
   -d '{"username": "alice", "password": "s3cret-password"}'
 
-TOKEN=$(curl -s -X POST localhost:8000/auth/login \
-  -d 'username=alice&password=s3cret-password' | python -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+# login returns {"access_token": ..., "refresh_token": ...}
+curl -s -X POST localhost:8000/auth/login -d 'username=alice&password=s3cret-password'
+TOKEN=<paste access_token>
+
+# when the access token expires (15 min), trade the refresh token for a new pair
+curl -X POST localhost:8000/auth/refresh -H 'Content-Type: application/json' \
+  -d '{"refresh_token": "<refresh_token>"}'
+
+# log out (revokes the refresh token)
+curl -X POST localhost:8000/auth/logout -H 'Content-Type: application/json' \
+  -d '{"refresh_token": "<refresh_token>"}'
 
 # 2. create a post (needs the token)
 curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
@@ -58,18 +67,21 @@ app/
 ├── security.py      # password hashing, JWT create/decode
 ├── dependencies.py  # get_current_user: turns a bearer token into a user
 └── routers/
-    ├── auth.py      # POST /auth/register, POST /auth/login, GET /auth/me
+    ├── auth.py      # POST /auth/register, /auth/login, /auth/refresh, /auth/logout, GET /auth/me
     ├── posts.py     # CRUD under /posts
     └── comments.py  # comments on posts
 ```
 
 ## How the auth flow works
 
-1. `POST /auth/login` checks the password and returns a signed JWT whose `sub` is the user id (expires after 30 minutes).
-2. The client sends it back as `Authorization: Bearer <token>`.
-3. Routes that declare `user: CurrentUser` run `get_current_user`, which verifies the signature and expiry and loads the user. Missing/invalid token → `401`. Editing or deleting someone else's post or comment → `403`.
+1. `POST /auth/login` checks the password (Argon2) and returns two tokens:
+   - an **access token**, a signed JWT whose `sub` is the user id, valid 15 minutes;
+   - a **refresh token**, a random string valid 7 days. Only its SHA-256 hash is stored, so it can be revoked and a database leak doesn't expose usable tokens.
+2. The client sends the access token as `Authorization: Bearer <token>`. Routes that declare `user: CurrentUser` verify its signature and expiry. Missing/invalid token → `401`. Changing someone else's post or comment → `403`.
+3. When the access token expires, `POST /auth/refresh` exchanges the refresh token for a new pair. Refresh tokens are **rotated**: each works once. Presenting an already-used one revokes all of that user's refresh tokens, because it suggests theft.
+4. `POST /auth/logout` revokes a refresh token. (An access token already issued stays valid until it expires.)
 
 ## Notes
 
-- Passwords are hashed with PBKDF2 from the standard library to keep dependencies small; for a real app consider `argon2` or `bcrypt`.
-- The schema changed (users, `posts.author_id`, comments). If you have an old `blog.db`, delete it so it is recreated.
+- Passwords use Argon2id (`argon2-cffi`). Hashes are upgraded automatically at login if the parameters get stronger. Accounts created with the previous PBKDF2 version can no longer log in; re-register them or reset the database.
+- The schema changed (users, `posts.author_id`, comments, `refresh_tokens`). If you have an old `blog.db`, delete it so it is recreated.

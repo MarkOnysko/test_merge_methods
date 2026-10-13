@@ -39,6 +39,13 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 author_id  INTEGER NOT NULL REFERENCES users(id)
             );
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL REFERENCES users(id),
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                revoked    INTEGER NOT NULL DEFAULT 0
+            );
             CREATE TABLE IF NOT EXISTS comments (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 post_id    INTEGER NOT NULL REFERENCES posts(id),
