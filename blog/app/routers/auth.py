@@ -1,12 +1,15 @@
 """Register, log in, refresh, log out."""
-import sqlite3
 from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.dependencies import DB, CurrentUser
+from app.models import RefreshToken, User
 from app.schemas import RefreshRequest, Token, UserCreate, UserOut
 from app.security import (
     create_access_token,
@@ -29,43 +32,40 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
-def _issue_tokens(db: sqlite3.Connection, user_id: int) -> Token:
+def _issue_tokens(db: Session, user_id: int) -> Token:
     """Create an access token plus a new refresh token (only its hash is stored)."""
     refresh = new_refresh_token()
-    db.execute(
-        "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
-        (user_id, hash_refresh_token(refresh), refresh_token_expiry().isoformat()),
-    )
+    db.add(RefreshToken(
+        user_id=user_id,
+        token_hash=hash_refresh_token(refresh),
+        expires_at=refresh_token_expiry(),
+    ))
     db.commit()
     return Token(access_token=create_access_token(user_id), refresh_token=refresh)
 
 
 @router.post("/register", response_model=UserOut, status_code=201)
-def register(user: UserCreate, db: DB):
+def register(data: UserCreate, db: DB):
+    user = User(username=data.username, password_hash=hash_password(data.password))
+    db.add(user)
     try:
-        cur = db.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (user.username, hash_password(user.password)),
-        )
         db.commit()
-    except sqlite3.IntegrityError:
+    except IntegrityError:  # the UNIQUE constraint on username was violated
+        db.rollback()
         raise HTTPException(status_code=409, detail="Username already taken")
-    return {"id": cur.lastrowid, "username": user.username}
+    return user
 
 
 @router.post("/login", response_model=Token)
 def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DB):
     """Exchange username + password (sent as form data) for an access + refresh token."""
-    row = db.execute("SELECT * FROM users WHERE username = ?", (form.username,)).fetchone()
-    stored = row["password_hash"] if row else None
+    user = db.scalar(select(User).where(User.username == form.username))
+    stored = user.password_hash if user else None
     if not verify_password(form.password, stored):
         raise _unauthorized("Incorrect username or password")
     if password_needs_rehash(stored):  # upgrade old hashes transparently
-        db.execute(
-            "UPDATE users SET password_hash = ? WHERE id = ?",
-            (hash_password(form.password), row["id"]),
-        )
-    return _issue_tokens(db, row["id"])
+        user.password_hash = hash_password(form.password)
+    return _issue_tokens(db, user.id)
 
 
 @router.post("/refresh", response_model=Token)
@@ -73,32 +73,32 @@ def refresh(data: RefreshRequest, db: DB):
     """Swap a refresh token for a fresh pair. Each refresh token works once
     (rotation); presenting an already-used one revokes the user's whole session set,
     since it suggests the token was stolen."""
-    row = db.execute(
-        "SELECT * FROM refresh_tokens WHERE token_hash = ?",
-        (hash_refresh_token(data.refresh_token),),
-    ).fetchone()
-    if row is None:
+    token = db.scalar(
+        select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(data.refresh_token))
+    )
+    if token is None:
         raise _unauthorized("Invalid refresh token")
-    if row["revoked"]:
-        db.execute("UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?", (row["user_id"],))
+    if token.revoked:
+        db.execute(update(RefreshToken).where(RefreshToken.user_id == token.user_id).values(revoked=True))
         db.commit()
         raise _unauthorized("Refresh token already used")
-    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+    if token.expires_at < datetime.now(timezone.utc):
         raise _unauthorized("Refresh token expired")
-    db.execute("UPDATE refresh_tokens SET revoked = 1 WHERE id = ?", (row["id"],))
-    return _issue_tokens(db, row["user_id"])
+    token.revoked = True
+    return _issue_tokens(db, token.user_id)
 
 
 @router.post("/logout", status_code=204)
 def logout(data: RefreshRequest, db: DB):
     """Revoke a refresh token. Idempotent: unknown tokens are ignored."""
     db.execute(
-        "UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?",
-        (hash_refresh_token(data.refresh_token),),
+        update(RefreshToken)
+        .where(RefreshToken.token_hash == hash_refresh_token(data.refresh_token))
+        .values(revoked=True)
     )
     db.commit()
 
 
 @router.get("/me", response_model=UserOut)
 def me(user: CurrentUser):
-    return dict(user)
+    return user

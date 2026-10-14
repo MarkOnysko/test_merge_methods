@@ -1,5 +1,7 @@
 """Pydantic models: the shapes of requests and responses."""
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserCreate(BaseModel):
@@ -8,6 +10,8 @@ class UserCreate(BaseModel):
 
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # build from ORM objects
+
     id: int
     username: str
 
@@ -30,8 +34,10 @@ class PostIn(BaseModel):
 
 class PostOut(PostIn):
     """What we send back: the same fields plus server-generated ones."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
-    created_at: str
+    created_at: datetime
     author_id: int
 
 
@@ -40,7 +46,9 @@ class CommentIn(BaseModel):
 
 
 class CommentOut(CommentIn):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     post_id: int
     author_id: int
-    created_at: str
+    created_at: datetime

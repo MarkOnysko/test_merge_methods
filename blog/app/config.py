@@ -1,7 +1,8 @@
 """Settings, read from environment variables with development defaults."""
 import os
 
-DB_PATH = os.getenv("DB_PATH", "blog.db")
+# Any SQLAlchemy URL works, e.g. postgresql+psycopg://user:pass@host/dbname
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///blog.db")
 
 # Used to sign JWTs. Always set a real, random value in production:
 #   export SECRET_KEY=$(openssl rand -hex 32)
