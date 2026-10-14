@@ -3,3 +3,5 @@ uvicorn[standard]
 pyjwt
 python-multipart
 argon2-cffi
+sqlalchemy
+alembic
