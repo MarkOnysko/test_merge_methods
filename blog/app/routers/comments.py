@@ -1,12 +1,12 @@
 """Comments on posts. Reading is public; adding requires login, and only a
 comment's author may edit or delete it."""
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.dependencies import DB, CurrentUser
+from app.dependencies import DB, CurrentUser, Paging
 from app.models import Comment, User
 from app.routers.posts import get_post_or_404
-from app.schemas import CommentIn, CommentOut
+from app.schemas import CommentIn, CommentOut, Page
 
 router = APIRouter(tags=["comments"])
 
@@ -32,12 +32,15 @@ def add_comment(post_id: int, data: CommentIn, db: DB, user: CurrentUser):
     return comment
 
 
-@router.get("/posts/{post_id}/comments", response_model=list[CommentOut])
-def list_comments(post_id: int, db: DB):
+@router.get("/posts/{post_id}/comments", response_model=Page[CommentOut])
+def list_comments(post_id: int, db: DB, paging: Paging):
     get_post_or_404(db, post_id)
-    return db.scalars(
-        select(Comment).where(Comment.post_id == post_id).order_by(Comment.id)
+    query = select(Comment).where(Comment.post_id == post_id)
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    comments = db.scalars(
+        query.order_by(Comment.id).limit(paging.limit).offset(paging.offset)
     ).all()
+    return {"items": comments, "total": total, "limit": paging.limit, "offset": paging.offset}
 
 
 @router.put("/comments/{comment_id}", response_model=CommentOut)

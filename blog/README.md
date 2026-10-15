@@ -36,10 +36,13 @@ curl -X POST localhost:8000/auth/logout -H 'Content-Type: application/json' \
 
 # 2. create a post (needs the token)
 curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"title": "Hello", "body": "My first post"}'
+  -H 'Content-Type: application/json' -d '{"title": "Hello", "body": "My first post", "tags": ["python", "intro"]}'
 
-# 3. read posts (public)
+# 3. read posts (public): paginated, searchable, filterable by tag
 curl localhost:8000/posts
+curl 'localhost:8000/posts?limit=10&offset=10'
+curl 'localhost:8000/posts?q=fastapi'
+curl 'localhost:8000/posts?tag=python&q=tips'
 
 # 4. edit your own post
 curl -X PUT localhost:8000/posts/1 -H "Authorization: Bearer $TOKEN" \
@@ -48,7 +51,7 @@ curl -X PUT localhost:8000/posts/1 -H "Authorization: Bearer $TOKEN" \
 # 5. comment on a post (needs the token), then list / edit / delete
 curl -X POST localhost:8000/posts/1/comments -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"body": "Nice post!"}'
-curl localhost:8000/posts/1/comments
+curl 'localhost:8000/posts/1/comments?limit=20&offset=0'
 curl -X PUT localhost:8000/comments/1 -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"body": "Edited"}'
 curl -X DELETE localhost:8000/comments/1 -H "Authorization: Bearer $TOKEN"
@@ -66,7 +69,7 @@ app/
 ├── main.py          # creates the app and includes the routers
 ├── config.py        # settings (DATABASE_URL, SECRET_KEY, token lifetimes)
 ├── database.py      # SQLAlchemy engine, session dependency, Base
-├── models.py        # ORM tables: User, Post, Comment, RefreshToken
+├── models.py        # ORM tables: User, Post, Tag, Comment, RefreshToken
 ├── schemas.py       # Pydantic request/response models
 ├── security.py      # Argon2 password hashing, JWT + refresh token helpers
 ├── dependencies.py  # get_current_user: turns a bearer token into a user
@@ -75,6 +78,13 @@ app/
     ├── posts.py     # CRUD under /posts
     └── comments.py  # comments on posts
 ```
+
+## Pagination, search and tags
+
+- `GET /posts` and `GET /posts/{id}/comments` return a page: `{"items": [...], "total": 42, "limit": 20, "offset": 0}`. Use `limit` (1-100, default 20) and `offset` (default 0); `total` counts all matches, so clients know when to stop.
+- `GET /posts?q=text` matches the title or body, case-insensitively; `%` and `_` are searched literally.
+- `GET /posts?tag=python` returns only posts with that tag. `q` and `tag` can be combined.
+- Posts accept `"tags": [...]` on create and update (replaces the list). Tags are trimmed and lowercased, duplicates dropped; max 10 per post, 1-30 characters each. Tags are created on first use and shared between posts.
 
 ## Database and migrations
 

@@ -1,8 +1,10 @@
 """Reusable dependencies, e.g. 'who is making this request?'"""
 from typing import Annotated
 
+from dataclasses import dataclass
+
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -34,3 +36,13 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DB) -> U
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+@dataclass
+class Pagination:
+    """?limit=20&offset=0 query parameters, validated and reusable."""
+    limit: Annotated[int, Query(ge=1, le=100, description="Page size")] = 20
+    offset: Annotated[int, Query(ge=0, description="How many items to skip")] = 0
+
+
+Paging = Annotated[Pagination, Depends()]
